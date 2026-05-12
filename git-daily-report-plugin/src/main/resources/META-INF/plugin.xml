@@ -1,0 +1,59 @@
+<idea-plugin>
+    <id>com.github.gitdailyreport</id>
+    <name>Git Daily Report</name>
+    <vendor>GitDailyReport</vendor>
+
+    <description><![CDATA[
+        根据 Git 提交记录自动生成每日工作日报。<br/>
+        功能：<br/>
+        <ul>
+            <li>每次 Git 提交成功后自动收集当天提交记录</li>
+            <li>自动生成日报并保存为 TXT 文件到指定文件夹</li>
+            <li>支持自定义日报保存路径</li>
+            <li>支持手动触发日报生成</li>
+            <li>兼容 IntelliJ IDEA 和 WebStorm 2023.1.1+</li>
+        </ul>
+    ]]></description>
+
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- 应用级设置服务 -->
+        <applicationService
+                serviceImplementation="com.github.gitdailyreport.settings.DailyReportSettings"/>
+
+        <!-- 设置面板 -->
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.github.gitdailyreport.settings.DailyReportSettingsConfigurable"
+                id="com.github.gitdailyreport.settings.DailyReportSettingsConfigurable"
+                displayName="Git Daily Report"/>
+
+        <!-- Git 提交监听器 -->
+        <checkinHandlerFactory
+                implementation="com.github.gitdailyreport.listener.GitCommitListener"/>
+
+        <!-- 通知组 -->
+        <notificationGroup id="Git Daily Report Notification"
+                           displayType="BALLOON"
+                           key="notification.group.name"/>
+    </extensions>
+
+    <actions>
+        <!-- 工具菜单入口 -->
+        <action id="com.github.gitdailyreport.GenerateDailyReport"
+                class="com.github.gitdailyreport.action.GenerateDailyReportAction"
+                text="Generate Git Daily Report"
+                description="根据当天 Git 提交记录生成日报">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <!-- VCS 菜单入口 -->
+        <action id="com.github.gitdailyreport.GenerateDailyReportFromVcs"
+                class="com.github.gitdailyreport.action.GenerateDailyReportAction"
+                text="Generate Daily Report"
+                description="根据当天 Git 提交记录生成日报">
+            <add-to-group group-id="Vcs.Log" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
