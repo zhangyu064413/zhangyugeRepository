@@ -69,9 +69,17 @@ object GitDailyReportService {
     }
 
     /**
+     * 提交记录与项目名称的数据类
+     */
+    data class CommitWithProject(
+        val commit: GitCommit,
+        val projectName: String
+    )
+
+    /**
      * 获取当天的 Git 提交记录
      */
-    fun getTodayCommits(project: Project, authorEmail: String? = null): List<GitCommit> {
+    fun getTodayCommits(project: Project, authorEmail: String? = null): List<CommitWithProject> {
         val repositoryManager = GitRepositoryManager.getInstance(project)
         val repositories = repositoryManager.repositories
 
@@ -86,7 +94,7 @@ object GitDailyReportService {
         val afterParam = "--after=${dateFormat.format(todayStart)} 00:00:00"
         val beforeParam = "--before=${dateFormat.format(todayEnd)} 23:59:59"
 
-        val allCommits = mutableListOf<GitCommit>()
+        val allCommits = mutableListOf<CommitWithProject>()
 
         for (repo in repositories) {
             try {
@@ -96,7 +104,10 @@ object GitDailyReportService {
                     afterParam,
                     beforeParam
                 )
-                allCommits.addAll(commits)
+                val projectName = repo.root.name
+                commits.forEach { commit ->
+                    allCommits.add(CommitWithProject(commit, projectName))
+                }
             } catch (e: Exception) {
                 logger.warn("Failed to get git history from repository: ${repo.root}", e)
             }
@@ -106,17 +117,17 @@ object GitDailyReportService {
         val filtered = if (authorEmail.isNullOrBlank()) {
             allCommits
         } else {
-            allCommits.filter { it.author.email.equals(authorEmail, ignoreCase = true) }
+            allCommits.filter { it.commit.author.email.equals(authorEmail, ignoreCase = true) }
         }
 
         // 按提交时间排序（最新在前）
-        return filtered.sortedByDescending { it.authorTime }
+        return filtered.sortedByDescending { it.commit.authorTime }
     }
 
     /**
      * 构建日报文本内容
      */
-    private fun buildReportContent(commits: List<GitCommit>, authorEmail: String?): String {
+    private fun buildReportContent(commits: List<CommitWithProject>, authorEmail: String?): String {
         val sb = StringBuilder()
         val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
         val weekDay = getWeekDayName(Date())
@@ -127,7 +138,7 @@ object GitDailyReportService {
         sb.appendLine()
         sb.appendLine("日期: $dateStr ($weekDay)")
         if (!authorEmail.isNullOrBlank()) {
-            sb.appendLine("提交人: ${commits.firstOrNull()?.author?.name ?: authorEmail}")
+            sb.appendLine("提交人: ${commits.firstOrNull()?.commit?.author?.name ?: authorEmail}")
         }
         sb.appendLine("提交次数: ${commits.size}")
         sb.appendLine()
@@ -135,18 +146,29 @@ object GitDailyReportService {
         sb.appendLine("今日提交记录")
         sb.appendLine("-".repeat(60))
 
-        commits.forEachIndexed { index, commit ->
-            val time = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(commit.authorTime * 1000))
+        // 按项目分组显示提交记录
+        val commitsByProject = commits.groupBy { it.projectName }.toSortedMap()
+        var globalIndex = 0
+
+        commitsByProject.forEach { (projectName, projectCommits) ->
             sb.appendLine()
-            sb.appendLine("[${index + 1}] $time | ${commit.id.toShortString()}")
-            sb.appendLine("    ${commit.subject}")
-            if (commit.changes.isNotEmpty()) {
-                sb.appendLine("    变更文件:")
-                commit.changes.forEach { change ->
-                    val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
-                    val fileName = filePath.substringAfterLast("/")
-                    val changeType = getChangeTypeLabel(change)
-                    sb.appendLine("      $changeType $fileName")
+            sb.appendLine("  - $projectName: ${projectCommits.size} 次提交")
+
+            projectCommits.forEach { commitWithProject ->
+                val commit = commitWithProject.commit
+                globalIndex++
+                val time = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(commit.authorTime * 1000))
+                sb.appendLine()
+                sb.appendLine("[$globalIndex] $time | ${commit.id.toShortString()}")
+                sb.appendLine("    ${commit.subject}")
+                if (commit.changes.isNotEmpty()) {
+                    sb.appendLine("    变更文件:")
+                    commit.changes.forEach { change ->
+                        val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
+                        val fileName = filePath.substringAfterLast("/")
+                        val changeType = getChangeTypeLabel(change)
+                        sb.appendLine("      $changeType $fileName")
+                    }
                 }
             }
         }
@@ -158,8 +180,8 @@ object GitDailyReportService {
         sb.appendLine()
 
         val fileStats = mutableMapOf<String, Int>()
-        commits.forEach { commit ->
-            commit.changes.forEach { change ->
+        commits.forEach { commitWithProject ->
+            commitWithProject.commit.changes.forEach { change ->
                 val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
                 fileStats[filePath] = (fileStats[filePath] ?: 0) + 1
             }
