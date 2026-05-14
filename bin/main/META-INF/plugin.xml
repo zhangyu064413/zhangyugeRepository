@@ -53,7 +53,7 @@
                 class="com.github.gitdailyreport.action.GenerateDailyReportAction"
                 text="Generate Daily Report"
                 description="根据当天 Git 提交记录生成日报">
-            <add-to-group group-id="Vcs.Log" anchor="last"/>
+            <add-to-group group-id="VcsGroup" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
