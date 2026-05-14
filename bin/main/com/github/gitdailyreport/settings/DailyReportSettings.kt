@@ -24,7 +24,7 @@ class DailyReportSettings : SimplePersistentStateComponent<DailyReportSettings.S
 
     /** 是否启用自动生成（提交后自动触发） */
     var autoGenerate: Boolean
-        get() = state.autoGenerate
+        get() = state.autoGenerate ?: true
         set(value) { state.autoGenerate = value }
 
     /** 过滤作者邮箱（为空则获取所有提交） */
@@ -34,7 +34,7 @@ class DailyReportSettings : SimplePersistentStateComponent<DailyReportSettings.S
 
     class State : BaseState() {
         var savePath by string("")
-        var autoGenerate by boolean(true)
+        var autoGenerate by property(true)
         var authorEmail by string("")
     }
 
