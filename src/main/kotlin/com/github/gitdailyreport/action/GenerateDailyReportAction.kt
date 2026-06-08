@@ -31,9 +31,9 @@ class GenerateDailyReportAction : AnAction() {
                 indicator.text = "正在获取 Git 提交记录..."
 
                 try {
-                    val filePath = GitDailyReportService.generateAndSaveReport(project, authorEmail)
-                    if (filePath != null) {
-                        indicator.text = "日报已生成: $filePath"
+                    val filePaths = GitDailyReportService.generateAndSaveReport(project, authorEmail)
+                    if (filePaths != null && filePaths.isNotEmpty()) {
+                        indicator.text = "日报已生成: ${filePaths.joinToString(", ")}"
                     }
                 } catch (e: Exception) {
                     logger.error("Failed to generate daily report", e)

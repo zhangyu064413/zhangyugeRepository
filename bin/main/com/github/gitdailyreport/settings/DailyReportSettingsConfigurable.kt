@@ -5,6 +5,7 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.ui.components.JBCheckBox
+import com.intellij.ui.components.JBComboBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
@@ -23,6 +24,7 @@ class DailyReportSettingsConfigurable : Configurable {
     private lateinit var savePathField: TextFieldWithBrowseButton
     private lateinit var autoGenerateCheckBox: JBCheckBox
     private lateinit var authorEmailField: JBTextField
+    private lateinit var formatComboBox: JBComboBox<String>
 
     private val settings: DailyReportSettings
         get() = DailyReportSettings.getInstance()
@@ -50,9 +52,22 @@ class DailyReportSettingsConfigurable : Configurable {
             emptyText.text = "留空则获取所有提交记录"
         }
 
+        // 文件格式选择
+        formatComboBox = JBComboBox<String>().apply {
+            ReportFormat.values().forEach { addItem(it.displayName) }
+            selectedIndex = ReportFormat.values().indexOfFirst { it.name == settings.reportFormat }
+        }
+
         settingsPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("日报保存路径:"), savePathField, 1, false)
             .addComponentToRightColumn(autoGenerateCheckBox, 1)
+            .addSeparator(1)
+            .addLabeledComponent(
+                JBLabel("文件格式:"),
+                formatComboBox,
+                1,
+                false
+            )
             .addSeparator(1)
             .addLabeledComponent(
                 JBLabel("过滤作者邮箱:"),
@@ -68,21 +83,26 @@ class DailyReportSettingsConfigurable : Configurable {
     }
 
     override fun isModified(): Boolean {
+        val selectedFormat = ReportFormat.values()[formatComboBox.selectedIndex]
         return savePathField.text != settings.savePath
                 || autoGenerateCheckBox.isSelected != settings.autoGenerate
                 || authorEmailField.text != settings.authorEmail
+                || selectedFormat.name != settings.reportFormat
     }
 
     @Throws(ConfigurationException::class)
     override fun apply() {
+        val selectedFormat = ReportFormat.values()[formatComboBox.selectedIndex]
         settings.savePath = savePathField.text.trim()
         settings.autoGenerate = autoGenerateCheckBox.isSelected
         settings.authorEmail = authorEmailField.text.trim()
+        settings.reportFormat = selectedFormat.name
     }
 
     override fun reset() {
         savePathField.text = settings.savePath
         autoGenerateCheckBox.isSelected = settings.autoGenerate
         authorEmailField.text = settings.authorEmail
+        formatComboBox.selectedIndex = ReportFormat.values().indexOfFirst { it.name == settings.reportFormat }
     }
 }

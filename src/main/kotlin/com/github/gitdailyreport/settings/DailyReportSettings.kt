@@ -7,6 +7,15 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 
 /**
+ * 日报文件格式枚举
+ */
+enum class ReportFormat(val displayName: String, val extension: String) {
+    MARKDOWN("Markdown (.md)", "md"),
+    TEXT("纯文本 (.txt)", "txt"),
+    BOTH("同时生成两种格式", "both")
+}
+
+/**
  * 日报插件设置 - 持久化存储
  *
  * 使用 Application 级别存储，所有项目共享同一配置。
@@ -32,10 +41,16 @@ class DailyReportSettings : SimplePersistentStateComponent<DailyReportSettings.S
         get() = state.authorEmail ?: ""
         set(value) { state.authorEmail = value }
 
+    /** 日报文件格式 */
+    var reportFormat: String
+        get() = state.reportFormat ?: ReportFormat.MARKDOWN.name
+        set(value) { state.reportFormat = value }
+
     class State : BaseState() {
         var savePath by string("")
         var autoGenerate by property(true)
         var authorEmail by string("")
+        var reportFormat by string(ReportFormat.MARKDOWN.name)
     }
 
     companion object {

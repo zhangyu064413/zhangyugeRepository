@@ -1,6 +1,7 @@
 package com.github.gitdailyreport.service
 
 import com.github.gitdailyreport.settings.DailyReportSettings
+import com.github.gitdailyreport.settings.ReportFormat
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -17,7 +18,7 @@ import java.util.*
 /**
  * Git 日报生成核心服务
  *
- * 负责获取当天 Git 提交记录，生成日报内容，并保存为 TXT 文件。
+ * 负责获取当天 Git 提交记录，生成日报内容，并保存为指定格式文件。
  */
 object GitDailyReportService {
 
@@ -29,9 +30,9 @@ object GitDailyReportService {
      *
      * @param project 当前项目
      * @param authorEmail 可选，指定作者邮箱进行过滤；为 null 则获取所有提交
-     * @return 保存的文件路径，失败返回 null
+     * @return 保存的文件路径列表，失败返回 null
      */
-    fun generateAndSaveReport(project: Project, authorEmail: String? = null): String? {
+    fun generateAndSaveReport(project: Project, authorEmail: String? = null): List<String>? {
         val settings = DailyReportSettings.getInstance()
         val savePath = settings.savePath
 
@@ -52,20 +53,166 @@ object GitDailyReportService {
             return null
         }
 
-        val reportContent = buildReportContent(commits, authorEmail)
-        val fileName = "daily-report-${SimpleDateFormat("yyyy-MM-dd").format(Date())}.txt"
-        val reportFile = File(saveDir, fileName)
+        val format = ReportFormat.valueOf(settings.reportFormat)
+        val savedFiles = mutableListOf<String>()
 
         try {
-            reportFile.writeText(reportContent, Charsets.UTF_8)
-            showNotification(project, "日报已生成: ${reportFile.absolutePath}", NotificationType.INFORMATION)
-            logger.info("Daily report generated: ${reportFile.absolutePath}")
-            return reportFile.absolutePath
+            when (format) {
+                ReportFormat.MARKDOWN -> {
+                    val file = saveReportForFormat(commits, authorEmail, saveDir, ReportFormat.MARKDOWN)
+                    file?.let { savedFiles.add(it) }
+                }
+                ReportFormat.TEXT -> {
+                    val file = saveReportForFormat(commits, authorEmail, saveDir, ReportFormat.TEXT)
+                    file?.let { savedFiles.add(it) }
+                }
+                ReportFormat.BOTH -> {
+                    val mdFile = saveReportForFormat(commits, authorEmail, saveDir, ReportFormat.MARKDOWN)
+                    mdFile?.let { savedFiles.add(it) }
+                    val txtFile = saveReportForFormat(commits, authorEmail, saveDir, ReportFormat.TEXT)
+                    txtFile?.let { savedFiles.add(it) }
+                }
+            }
+
+            if (savedFiles.isNotEmpty()) {
+                showNotification(project, "日报已更新: ${savedFiles.joinToString(", ")}", NotificationType.INFORMATION)
+                logger.info("Daily reports updated: ${savedFiles.joinToString(", ")}")
+            }
+            return savedFiles.takeIf { it.isNotEmpty() }
         } catch (e: Exception) {
             logger.error("Failed to save daily report", e)
             showNotification(project, "保存日报失败: ${e.message}", NotificationType.ERROR)
             return null
         }
+    }
+
+    /**
+     * 为指定格式保存日报
+     */
+    private fun saveReportForFormat(
+        commits: List<CommitWithProject>,
+        authorEmail: String?,
+        saveDir: File,
+        format: ReportFormat
+    ): String? {
+        val dateStr = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val fileName = "daily-report-$dateStr.${format.extension}"
+        val reportFile = File(saveDir, fileName)
+
+        val (existingCommits, existingContent) = if (reportFile.exists()) {
+            parseExistingReport(reportFile, format)
+        } else {
+            (emptySet() to null)
+        }
+
+        val newCommits = commits.filter { !existingCommits.contains(it.commit.id.asString()) }
+
+        if (newCommits.isEmpty() && existingContent != null) {
+            return reportFile.absolutePath
+        }
+
+        val finalContent = if (existingContent != null && newCommits.isNotEmpty()) {
+            appendNewCommitsToExistingReport(existingContent, newCommits, format)
+        } else {
+            buildReportContent(commits, authorEmail, format)
+        }
+
+        reportFile.writeText(finalContent, Charsets.UTF_8)
+        return reportFile.absolutePath
+    }
+
+    /**
+     * 解析现有日报文件，获取已有的提交 ID 和完整内容
+     */
+    private fun parseExistingReport(file: File, format: ReportFormat): Pair<Set<String>, String> {
+        val content = file.readText(Charsets.UTF_8)
+        val existingCommitIds = mutableSetOf<String>()
+
+        val pattern = when (format) {
+            ReportFormat.MARKDOWN -> Regex("""Commit ID: `([a-f0-9]{7,40})`""")
+            ReportFormat.TEXT -> Regex("""Commit ID:\s*([a-f0-9]{7,40})""")
+            ReportFormat.BOTH -> Regex("""Commit ID:\s*[`]?([a-f0-9]{7,40})[`]?""")
+        }
+
+        pattern.findAll(content).forEach { matchResult ->
+            existingCommitIds.add(matchResult.groupValues[1])
+        }
+        return existingCommitIds to content
+    }
+
+    /**
+     * 将新的提交记录追加到现有日报中
+     */
+    private fun appendNewCommitsToExistingReport(
+        existingContent: String,
+        newCommits: List<CommitWithProject>,
+        format: ReportFormat
+    ): String {
+        return when (format) {
+            ReportFormat.MARKDOWN -> appendNewCommitsToMarkdown(existingContent, newCommits)
+            ReportFormat.TEXT -> appendNewCommitsToText(existingContent, newCommits)
+            ReportFormat.BOTH -> existingContent
+        }
+    }
+
+    /**
+     * 将新提交追加到 Markdown 格式的日报
+     */
+    private fun appendNewCommitsToMarkdown(existingContent: String, newCommits: List<CommitWithProject>): String {
+        val footer = "---\n\n*Generated by Git Daily Report Plugin*"
+        val newContent = existingContent.removeSuffix(footer).trimEnd()
+        val sb = StringBuilder(newContent)
+
+        val commitsByProject = newCommits.groupBy { it.projectName }.toSortedMap()
+
+        commitsByProject.forEach { (projectName, projectCommits) ->
+            val projectHeader = "\n\n### $projectName\n"
+            if (!sb.contains("\n\n### $projectName\n")) {
+                sb.append(projectHeader)
+            }
+
+            projectCommits.forEach { commitWithProject ->
+                sb.append(buildCommitMarkdown(commitWithProject))
+            }
+        }
+
+        sb.append("\n\n").append(footer)
+        return sb.toString()
+    }
+
+    /**
+     * 将新提交追加到 TXT 格式的日报
+     */
+    private fun appendNewCommitsToText(existingContent: String, newCommits: List<CommitWithProject>): String {
+        val footer = "=".repeat(60) + "\nGenerated by Git Daily Report Plugin\n" + "=".repeat(60)
+        val newContent = existingContent.removeSuffix(footer).trimEnd()
+        val sb = StringBuilder(newContent)
+
+        val commitsByProject = newCommits.groupBy { it.projectName }.toSortedMap()
+        var globalIndex = countExistingCommitsInText(existingContent)
+
+        commitsByProject.forEach { (projectName, projectCommits) ->
+            val projectHeader = "\n  - $projectName:"
+            if (!sb.contains(projectHeader)) {
+                sb.append("\n\n").append(projectHeader).append(" ${projectCommits.size} 次提交")
+            }
+
+            projectCommits.forEach { commitWithProject ->
+                globalIndex++
+                sb.append(buildCommitText(commitWithProject, globalIndex))
+            }
+        }
+
+        sb.append("\n\n").append(footer)
+        return sb.toString()
+    }
+
+    /**
+     * 统计 TXT 格式日报中已有的提交数量
+     */
+    private fun countExistingCommitsInText(content: String): Int {
+        val pattern = Regex("""^\[\d+\]""", RegexOption.MULTILINE)
+        return pattern.findAll(content).count()
     }
 
     /**
@@ -125,16 +272,123 @@ object GitDailyReportService {
     }
 
     /**
-     * 构建日报文本内容
+     * 构建指定格式的日报内容
      */
-    private fun buildReportContent(commits: List<CommitWithProject>, authorEmail: String?): String {
+    private fun buildReportContent(commits: List<CommitWithProject>, authorEmail: String?, format: ReportFormat): String {
+        return when (format) {
+            ReportFormat.MARKDOWN -> buildReportMarkdownContent(commits, authorEmail)
+            ReportFormat.TEXT -> buildReportTextContent(commits, authorEmail)
+            ReportFormat.BOTH -> buildReportMarkdownContent(commits, authorEmail)
+        }
+    }
+
+    /**
+     * 构建日报 Markdown 内容
+     */
+    private fun buildReportMarkdownContent(commits: List<CommitWithProject>, authorEmail: String?): String {
         val sb = StringBuilder()
         val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
         val weekDay = getWeekDayName(Date())
 
-        sb.appendLine("=" .repeat(60))
+        sb.appendLine("# 工作日报")
+        sb.appendLine()
+        sb.appendLine("> 日期: $dateStr ($weekDay)")
+        if (!authorEmail.isNullOrBlank()) {
+            sb.appendLine("> 提交人: ${commits.firstOrNull()?.commit?.author?.name ?: authorEmail}")
+        }
+        sb.appendLine("> 提交次数: ${commits.size}")
+        sb.appendLine()
+        sb.appendLine("---")
+        sb.appendLine()
+        sb.appendLine("## 今日提交记录")
+        sb.appendLine()
+
+        // 按项目分组显示提交记录
+        val commitsByProject = commits.groupBy { it.projectName }.toSortedMap()
+
+        commitsByProject.forEach { (projectName, projectCommits) ->
+            sb.appendLine("### $projectName")
+            sb.appendLine()
+
+            projectCommits.forEach { commitWithProject ->
+                sb.append(buildCommitMarkdown(commitWithProject))
+            }
+        }
+
+        sb.appendLine("---")
+        sb.appendLine()
+        sb.appendLine("## 变更文件统计")
+        sb.appendLine()
+
+        val fileStats = mutableMapOf<String, Int>()
+        commits.forEach { commitWithProject ->
+            commitWithProject.commit.changes.forEach { change ->
+                val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
+                fileStats[filePath] = (fileStats[filePath] ?: 0) + 1
+            }
+        }
+
+        if (fileStats.isNotEmpty()) {
+            sb.appendLine("共涉及 **${fileStats.size}** 个文件，**${fileStats.values.sum()}** 次变更")
+            sb.appendLine()
+            sb.appendLine("| 文件 | 变更次数 |")
+            sb.appendLine("|------|---------|")
+            fileStats.keys.sorted().forEach { filePath ->
+                val count = fileStats[filePath]!!
+                val fileName = filePath.substringAfterLast("/")
+                sb.appendLine("| $fileName | $count |")
+            }
+        } else {
+            sb.appendLine("无文件变更记录")
+        }
+
+        sb.appendLine()
+        sb.appendLine("---")
+        sb.appendLine()
+        sb.appendLine("*Generated by Git Daily Report Plugin*")
+
+        return sb.toString()
+    }
+
+    /**
+     * 构建单个提交的 Markdown 内容
+     */
+    private fun buildCommitMarkdown(commitWithProject: CommitWithProject): String {
+        val sb = StringBuilder()
+        val commit = commitWithProject.commit
+        val time = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(commit.authorTime * 1000))
+
+        sb.appendLine("#### $time | ${commit.id.toShortString()}")
+        sb.appendLine()
+        sb.appendLine("**${commit.subject}**")
+        sb.appendLine()
+        sb.appendLine("- Commit ID: `${commit.id.asString()}`")
+        sb.appendLine("- 作者: ${commit.author.name}")
+        if (commit.changes.isNotEmpty()) {
+            sb.appendLine("- 变更文件:")
+            commit.changes.forEach { change ->
+                val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
+                val fileName = filePath.substringAfterLast("/")
+                val changeType = getChangeTypeLabel(change)
+                sb.appendLine("  - $changeType `$fileName`")
+            }
+        }
+        sb.appendLine()
+
+        return sb.toString()
+    }
+
+    /**
+     * 构建日报 TXT 内容
+     */
+    private fun buildReportTextContent(commits: List<CommitWithProject>, authorEmail: String?): String {
+        val sb = StringBuilder()
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
+        val weekDay = getWeekDayName(Date())
+
+        sb.appendLine("=".repeat(60))
         sb.appendLine("                    工作日报")
-        sb.appendLine("=" .repeat(60))
+        sb.appendLine("=".repeat(60))
         sb.appendLine()
         sb.appendLine("日期: $dateStr ($weekDay)")
         if (!authorEmail.isNullOrBlank()) {
@@ -155,21 +409,8 @@ object GitDailyReportService {
             sb.appendLine("  - $projectName: ${projectCommits.size} 次提交")
 
             projectCommits.forEach { commitWithProject ->
-                val commit = commitWithProject.commit
                 globalIndex++
-                val time = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(commit.authorTime * 1000))
-                sb.appendLine()
-                sb.appendLine("[$globalIndex] $time | ${commit.id.toShortString()}")
-                sb.appendLine("    ${commit.subject}")
-                if (commit.changes.isNotEmpty()) {
-                    sb.appendLine("    变更文件:")
-                    commit.changes.forEach { change ->
-                        val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
-                        val fileName = filePath.substringAfterLast("/")
-                        val changeType = getChangeTypeLabel(change)
-                        sb.appendLine("      $changeType $fileName")
-                    }
-                }
+                sb.append(buildCommitText(commitWithProject, globalIndex))
             }
         }
 
@@ -203,6 +444,32 @@ object GitDailyReportService {
         sb.appendLine("=".repeat(60))
         sb.appendLine("Generated by Git Daily Report Plugin")
         sb.appendLine("=".repeat(60))
+
+        return sb.toString()
+    }
+
+    /**
+     * 构建单个提交的 TXT 内容
+     */
+    private fun buildCommitText(commitWithProject: CommitWithProject, index: Int): String {
+        val sb = StringBuilder()
+        val commit = commitWithProject.commit
+        val time = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(commit.authorTime * 1000))
+
+        sb.appendLine()
+        sb.appendLine("[$index] $time | ${commit.id.toShortString()}")
+        sb.appendLine("    ${commit.subject}")
+        sb.appendLine("    Commit ID: ${commit.id.asString()}")
+        sb.appendLine("    作者: ${commit.author.name}")
+        if (commit.changes.isNotEmpty()) {
+            sb.appendLine("    变更文件:")
+            commit.changes.forEach { change ->
+                val filePath = change.virtualFile?.path ?: change.beforeRevision?.file?.path ?: "unknown"
+                val fileName = filePath.substringAfterLast("/")
+                val changeType = getChangeTypeLabel(change)
+                sb.appendLine("      $changeType $fileName")
+            }
+        }
 
         return sb.toString()
     }
