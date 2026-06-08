@@ -9,7 +9,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import git4idea.GitCommit
 import git4idea.history.GitHistoryUtils
-import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import java.io.File
 import java.text.SimpleDateFormat
@@ -102,7 +101,7 @@ object GitDailyReportService {
         val (existingCommits, existingContent) = if (reportFile.exists()) {
             parseExistingReport(reportFile, format)
         } else {
-            (emptySet() to null)
+            (emptySet<String>() to null)
         }
 
         val newCommits = commits.filter { !existingCommits.contains(it.commit.id.asString()) }

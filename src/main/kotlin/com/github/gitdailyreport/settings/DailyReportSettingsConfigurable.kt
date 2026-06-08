@@ -5,7 +5,7 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.components.JBComboBox
+import javax.swing.JComboBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
@@ -24,7 +24,7 @@ class DailyReportSettingsConfigurable : Configurable {
     private lateinit var savePathField: TextFieldWithBrowseButton
     private lateinit var autoGenerateCheckBox: JBCheckBox
     private lateinit var authorEmailField: JBTextField
-    private lateinit var formatComboBox: JBComboBox<String>
+    private lateinit var formatComboBox: JComboBox<String>
 
     private val settings: DailyReportSettings
         get() = DailyReportSettings.getInstance()
@@ -53,7 +53,7 @@ class DailyReportSettingsConfigurable : Configurable {
         }
 
         // 文件格式选择
-        formatComboBox = JBComboBox<String>().apply {
+        formatComboBox = JComboBox<String>().apply {
             ReportFormat.values().forEach { addItem(it.displayName) }
             selectedIndex = ReportFormat.values().indexOfFirst { it.name == settings.reportFormat }
         }
