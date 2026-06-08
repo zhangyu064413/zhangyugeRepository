@@ -448,7 +448,7 @@ object GitDailyReportService {
             fileStats.keys.sorted().forEach { filePath ->
                 val count = fileStats[filePath]!!
                 val fileName = filePath.substringAfterLast("/")
-                sb.appendLine("$fileName ($count次)")
+                sb.appendLine("$fileName (${count}次)")
             }
         } else {
             sb.appendLine("无文件变更记录")
