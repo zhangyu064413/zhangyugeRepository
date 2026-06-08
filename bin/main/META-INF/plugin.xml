@@ -55,5 +55,13 @@
                 description="根据当天 Git 提交记录生成日报">
             <add-to-group group-id="VcsGroup" anchor="last"/>
         </action>
+
+        <!-- 导出 XLSX 日报入口 -->
+        <action id="com.github.gitdailyreport.ExportXlsxReport"
+                class="com.github.gitdailyreport.action.ExportXlsxAction"
+                text="Export Git Daily Report to XLSX"
+                description="将当天 Git 提交记录汇总导出为 XLSX 文件（含曲线图）">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>
